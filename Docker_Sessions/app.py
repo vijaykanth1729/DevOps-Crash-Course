@@ -1,0 +1,1 @@
+print("Hello world from Docker Sessions!, This is my first Docker image and container.")

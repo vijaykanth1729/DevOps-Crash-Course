@@ -1,0 +1,374 @@
+Docker Compose Notes (docker5.txt)
+==================================
+
+What is Docker Compose?
+------------------------
+Docker Compose helps you run multi-container apps using ONE file (like `compose.yml`).
+Instead of running containers one-by-one with `docker run`, you declare:
+- what services you need
+- which images to use (or how to build them)
+- which ports to publish
+- which networks/volumes to use
+
+Compose is perfect when you have things like:
+- web + api
+- web + database
+- multiple microservices
+
+
+1) Basic Compose Commands (must know)
+--------------------------------------
+
+In the folder with your compose file:
+
+Start all services:
+  docker compose up
+
+Start in background:
+  docker compose up -d
+
+Stop and remove containers (keep volumes):
+  docker compose down
+
+Stop and remove containers + volumes (data is deleted):
+  docker compose down -v
+
+See what is running:
+  docker compose ps
+
+See logs:
+  docker compose logs -f
+
+Build images (when using build:):
+  docker compose build
+
+Start with rebuild:
+  docker compose up --build
+
+Validate the file:
+  docker compose config
+
+
+2) Compose File Structure (easy mental model)
+------------------------------------------------
+
+Typical file name: `docker-compose.yml` or `compose.yaml` or `compose.yml`
+
+Top-level keys you will use most:
+- `services`: each containerized app
+- `networks`: how services talk
+- `volumes`: persistent storage
+
+Inside `services` each service can have:
+- `image`: use an existing image
+- `build`: build from a Dockerfile in your project
+- `ports`: publish to host
+- `environment`: env vars
+- `volumes`: mount storage
+- `depends_on`: order/health hints
+- `command`: override default command
+- `restart`: restart policy
+- `networks`: attach services to networks
+
+
+3) Example 1: Two services on a private network (no port for internal stuff)
+-------------------------------------------------------------------------------
+
+Create a file `compose.yaml`:
+
+```yaml
+services:
+  api:
+    image: nginx:alpine
+    networks:
+      - mynet
+
+  web:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    networks:
+      - mynet
+
+networks:
+  mynet:
+    driver: bridge
+```
+
+What to expect:
+- `api` is NOT published to the host (no `ports` in `api`).
+- `web` IS published, so you can open `http://localhost:8080`.
+- Containers can talk using DNS:
+  - `api` is reachable by name `http://api` from `web` (if the app supports it).
+
+Important note:
+- For nginx->curl: nginx does not curl by default. In real apps, the API calls the other service.
+- For testing, you can add a temporary curl container on the same network.
+
+
+4) Example 2: Build your own image (how to use Dockerfile)
+------------------------------------------------------------
+
+Assume you already have:
+- `Dockerfile` that uses nginx and copies `index.html`
+- `index.html`
+
+Example `compose.yaml`:
+
+```yaml
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:80"
+```
+
+Explanation:
+- `build.context` = where Docker looks for files
+- `build.dockerfile` = optional if Dockerfile name is exactly `Dockerfile`
+- Compose will build an image and run the container
+- `ports` publishes container port 80 to host port 8080
+
+
+5) Example 3: Environment variables (database-friendly)
+--------------------------------------------------------
+
+```yaml
+services:
+  api:
+    image: my-api-image
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=appuser
+      - DB_PASSWORD=secret
+    depends_on:
+      - db
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=mydb
+      - POSTGRES_USER=appuser
+      - POSTGRES_PASSWORD=secret
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+
+volumes:
+  dbdata:
+```
+
+Key points:
+- `DB_HOST=db` works because Compose creates a network where service names become DNS.
+- `db` uses a named volume `dbdata` so data persists across restarts.
+
+
+6) depends_on (order vs ready)
+--------------------------------
+
+`depends_on` helps with start order, but it does not guarantee the dependency is fully ready.
+
+Better approach (recommended):
+- Add `healthcheck` to the dependency service
+- Use condition-based `depends_on` (supported in modern Compose versions)
+
+Example:
+
+```yaml
+services:
+  db:
+    image: postgres:16-alpine
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U appuser"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    image: my-api-image
+    depends_on:
+      db:
+        condition: service_healthy
+```
+
+
+7) Volumes in Compose (persistence)
+------------------------------------
+
+Types:
+1. Named volume (managed by Docker)
+   - good for databases
+2. Bind mount (your local folder into the container)
+   - good for code/dev
+
+Named volume example:
+```yaml
+volumes:
+  myvolume:
+
+services:
+  app:
+    image: nginx:alpine
+    volumes:
+      - myvolume:/usr/share/nginx/html
+```
+
+Bind mount example:
+```yaml
+services:
+  app:
+    image: nginx:alpine
+    volumes:
+      - ./html:/usr/share/nginx/html
+```
+
+
+8) networks in Compose (matches Docker networking)
+----------------------------------------------------
+
+Compose automatically creates one default network for your project, and services join it.
+
+But you can define your own networks:
+
+```yaml
+services:
+  web:
+    image: nginx:alpine
+    networks:
+      - backend
+  api:
+    image: nginx:alpine
+    networks:
+      - backend
+
+networks:
+  backend:
+    driver: bridge
+```
+
+Rule of thumb:
+- Use internal networks for service-to-service.
+- Only publish ports you actually need to reach from your host.
+
+
+9) ports vs expose (Compose-friendly)
+--------------------------------------
+
+In Compose:
+- `ports` = publish to host (HOST:CONTAINER)
+- `expose` = document container port only (not published by default)
+
+Example:
+ports:
+  - "8080:80"
+
+expose:
+  - "80"
+
+Beginner tip:
+- If you want to open in browser on host => use `ports`.
+- If only other containers should talk => you can skip `ports`.
+
+
+10) Full Example: Web + API + DB (copy-paste starter)
+-------------------------------------------------------
+
+```yaml
+services:
+  api:
+    build:
+      context: ./api
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - backend
+
+  web:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    networks:
+      - backend
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=appdb
+      - POSTGRES_USER=appuser
+      - POSTGRES_PASSWORD=secret
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U appuser"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - backend
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  dbdata:
+```
+
+How to use:
+1. Put this file as `compose.yaml`
+2. Build/start:
+   docker compose up -d --build
+3. Visit:
+   http://localhost:8080
+
+
+11) Quick Troubleshooting (Compose)
+------------------------------------
+
+Problem: service name not working
+- Make sure both services are on the same network.
+
+Problem: I can not reach the service from my browser
+- Check if you used `ports` for that service.
+- If you only used networks, host cannot reach it directly.
+
+Problem: After change, container did not update
+- If using build:, run:
+  docker compose up -d --build
+
+Problem: Database data lost
+- You probably ran:
+  docker compose down -v
+
+
+12) Docker Compose and Dockerfile: what each one does
+------------------------------------------------------
+
+In Dockerfile you usually do:
+- install dependencies
+- copy your code
+- start your app (CMD)
+- `EXPOSE` (optional/documentation)
+
+In Compose you do:
+- build or choose the image
+- connect networks
+- set environment variables
+- publish ports
+- persistent storage and start/stop orchestration
+
+
+Quick Summary (memorize)
+-------------------------
+- Compose file = blueprint for multiple containers.
+- `services:` = containers.
+- `ports:` = host access.
+- `networks:` = service-to-service communication.
+- `volumes:` = data persistence.
+

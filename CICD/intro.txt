@@ -1,0 +1,195 @@
+After writing the code, How do we deploy it?
+
+Traditional Approach:
+---------------------
+Code --> Manual Build  --->Manual Test ---> Manual Deploy.
+
+Problems:
+--------
+Time consuming
+Human errors
+Not scalable
+
+CI/CD Approach:
+---------------
+Code ---> Build -->Test -->Deploy (Automatic)
+
+CI (Continous Integration) :
+
+Automatically builds & tests code when pushed.
+
+CD (Continous Delivery / Deployment):
+
+Automatically deploys application.
+
+CICD = Automating software delivery.
+
+What is Jenkins?
+----------------
+Jenkins is an open source tool used to automate CICD pipelines..
+
+What jenkins does?:
+--------------------
+Pulls code from GIT
+builds application
+runs tests 
+deploys to servers/Cloud
+
+Real world Example:
+---------------------
+Developer pushes code --> Jenkins Triggers --->Build -->Deploys
+
+Jenkins Architecture:
+--------------------------
+Components:
+----------------
+Controller (Master)
+- UI
+- Managed Jobs
+
+Agent (Worker)
+- Execute the Jobs
+
+User --> Jenkins UI --> Job --> Agent -->Execute -->Output.
+
+Controller = Manager
+Agent  = Employee 
+
+Setup Jenkins using Docker:
+----------------------------
+1)pull the jenkins image.
+
+ docker pull jenkins/jenkins:lts
+
+
+Run Container:
+-------------
+docker run -d -p 8080:8080 -p 50000:50000 -v D:\Softwares\jenkins_local_home:/var/jenkins_home --name myjenkins --restart=always jenkins/jenkins:lts
+docker ps (it shows recently started container)
+
+8080 UI acess
+50000 agent communication
+-d  background
+
+Get Admin Password:
+---------------------
+docker exec myjenkins cat /var/jenkins_home/secrets/initialAdminPassword
+
+Jenkins User creds:
+-------------------
+admin
+admin123
+
+Create FIRST Job (Free style project):
+-------------------------------------
+Click new item
+enter name -->Select Free style project 
+
+Add build step:
+----------------
+execute shell
+
+echo "hello "
+date
+whoami
+
+pipeline approach:
+---------------------
+pipeline {
+   agent any  
+       stages {
+           stage ('Build') {
+               steps {
+                   echo "Building phase"
+                   sh 'pwd'
+                   sh "date"
+                   sh "whoami"
+               }
+           },
+           stage ('Test) {
+            steps {
+                echo "Testing phase.."
+                sh "ls"
+                sh "pwd"
+            }
+           }
+       }  
+}
+
+
+pipeline {
+    agent any
+
+    stages {
+        stage('Hello') {
+            steps {
+                echo 'Hello World'
+            }
+        }
+    }
+}
+
+Jenkins plugins helps to add extra features for our jobs..
+
+install pipeline stage view plugin...
+
+
+docker run -d ^
+  -p 8080:8080 ^
+  -p 50000:50000 ^
+  --name jenkins ^
+  -v jenkins_home:/var/jenkins_home ^
+  -v /var/run/docker.sock:/var/run/docker.sock ^
+  jenkins/jenkins:lts
+
+
+  pipeline {
+    agent any
+
+    environment {
+        IMAGE_NAME = "iamvijay/myapp"
+        IMAGE_TAG = "v1"
+    }
+
+    stages {
+
+        stage('Clone Code') {
+            steps {
+                checkout scmGit(
+                    branches: [[name: '*/main']],
+                    userRemoteConfigs: [[url: 'https://github.com/vijaykanth1729/git-demo.git']]
+                )
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh 'docker build -t $IMAGE_NAME:$IMAGE_TAG .'
+            }
+        }
+
+        stage('Login to Dockerhub') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'docker-creds',
+                    usernameVariable: 'USER',
+                    passwordVariable: 'PASS'
+                )]) {
+                    sh 'echo $PASS | docker login -u $USER --password-stdin'
+                }
+            }
+        }
+
+        stage('Push Image') {
+            steps {
+                sh 'docker push $IMAGE_NAME:$IMAGE_TAG'
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+    }
+}

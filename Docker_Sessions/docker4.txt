@@ -1,0 +1,284 @@
+Docker Networking Notes (docker4.txt)
+===================================
+
+Goal (simple):
+Containers are isolated mini-environments. Networking is how they talk to each other (and how you talk to them).
+
+Think of it like this:
+- A container has its own network "world" (its own IP + network interfaces).
+- A Docker network is like a shared hallway where containers are allowed to meet.
+- "Port mapping" is like opening a door from your laptop/host into that container hallway.
+
+
+1) Core Networking Ideas (must understand)
+-----------------------------------------
+
+A. Inside-container address options
+1. Container IP address (works, but changes when container is recreated)
+2. Container name (DNS works when containers share the same user-defined network)
+3. Service name (in Docker Compose, the service name becomes DNS)
+
+B. Publishing ports (host <-> container)
+- This is done with: `-p HOST_PORT:CONTAINER_PORT`
+- Without `-p`, your host cannot reach the container directly.
+- The container can still reach other containers on the same Docker network.
+
+C. EXPOSE vs publishing
+- `EXPOSE 80` in a Dockerfile only DOCUMENTS that your app listens on port 80.
+- It does NOT publish the port to the host.
+- To publish, you must use:
+  - `docker run -p ...` or
+  - `docker compose ports: ...`
+
+
+2) Docker Network Drivers (types)
+----------------------------------
+
+Common drivers you'll see:
+1. `bridge` (most common for local dev)
+2. `host` (shares the host network directly)
+3. `none` (no network)
+4. `overlay` (multi-host networking; commonly used with Swarm)
+5. `macvlan` / `ipvlan` (containers look like real machines on your LAN)
+
+
+3) Bridge Networks (the default learning path)
+------------------------------------------------
+
+A. The default `bridge` network
+- Docker automatically creates a network named `bridge`.
+- If you don't specify `--network`, containers often end up on the default bridge.
+- For learning, prefer a user-defined bridge network instead (next section).
+
+B. User-defined bridge network (recommended)
+Why it's great:
+- Containers get automatic DNS name resolution.
+- Containers can talk to each other by name (no manual IP hunting).
+
+Create a network:
+-------------------
+docker network create myapp-net
+
+Run containers on it:
+----------------------
+# container A
+docker run -d --name api --network myapp-net nginx:alpine
+
+# container B
+docker run -d --name web --network myapp-net nginx:alpine
+
+Now, from container B you can reach container A by name:
+  http://api
+
+Example (tester container that can curl):
+------------------------------------------
+docker run --rm -it --network myapp-net curlimages/curl:8.5.0 \
+  curl -s http://api
+
+Important:
+- Notice we did NOT use `-p`.
+- That's because we're testing container-to-container communication inside the same Docker network.
+
+
+4) Port Mapping (Host <-> Containers)
+---------------------------------------
+
+Use `-p` when you want to access the container from your host/laptop.
+
+Example: publish container port 80 to host port 8080
+-----------------------------------------------------
+docker run -d --name mynginx -p 8080:80 nginx:alpine
+
+Now in your browser:
+- Open: http://localhost:8080
+
+Key rules:
+- `-p` is for host access.
+- Docker networks (DNS, private IPs) are for container-to-container access.
+
+
+5) How to select a network when running containers
+-----------------------------------------------------
+
+Use:
+docker run --network <network_name_or_id> ...
+
+Common patterns:
+- Same network => containers can reach each other by name
+- Different networks => they can't directly talk (unless you connect them to both)
+
+Inspect networks:
+------------------
+docker network ls
+docker network inspect myapp-net
+
+Connect an existing container to a new network:
+--------------------------------------------------
+# (Example: connect container web to myapp-net)
+docker network connect myapp-net web
+
+Disconnect:
+------------
+docker network disconnect myapp-net web
+
+
+6) Host Network (advanced / special case)
+------------------------------------------
+
+Driver: `--network host`
+Meaning:
+- Container shares the host network namespace.
+- The container can bind to host ports directly.
+
+Example:
+--------
+docker run --network host nginx:alpine
+
+Pros:
+- Low overhead
+
+Cons / caution:
+- No isolation
+- Port conflicts are your problem (container ports collide with host ports)
+- Linux-focused (behavior can differ across OS)
+
+
+7) None Network (no connectivity)
+-----------------------------------
+
+If you run:
+docker run --network none ...
+
+Then:
+- Container has no network access.
+- It's isolated from other containers and host networking.
+
+Use cases:
+- Testing edge cases
+- Running a container only for file processing
+
+
+8) Overlay Networks (multi-host)
+----------------------------------
+
+Overlay networks are usually for Docker Swarm:
+- They let services communicate across multiple machines.
+
+High-level flow:
+1. Initialize Swarm
+2. Create an overlay network
+3. Deploy services to that overlay network
+
+Example (conceptual):
+----------------------
+docker swarm init
+docker network create -d overlay my-overlay-net
+docker service create --name api --network my-overlay-net nginx:alpine
+
+Note:
+- Overlay is not the first thing for beginners doing single-machine Docker.
+- Learn bridge first, then overlay.
+
+
+9) macvlan / ipvlan (containers on your LAN)
+--------------------------------------------
+
+macvlan / ipvlan makes Docker containers behave like "real devices" on your network:
+- They get IPs from your LAN subnet.
+- Your router/LAN can see them as separate machines.
+
+High-level idea (macvlan):
+- Create a network tied to a physical interface (like `eth0`)
+- Set subnet/gateway
+- Containers get their own LAN IPs
+
+Example (illustrative):
+------------------------
+docker network create -d macvlan \
+  --subnet=192.168.1.0/24 \
+  --gateway=192.168.1.1 \
+  -o parent=eth0 \
+  my-lan-net
+
+Then:
+docker run -d --network my-lan-net --ip 192.168.1.50 nginx:alpine
+
+Caution:
+- Your LAN must support it.
+- Misconfiguring subnet/gateway/parent can break connectivity.
+- Not needed for typical local dev.
+
+
+10) Dockerfile: what networking means there (important!)
+----------------------------------------------------------
+
+Dockerfile cannot "create" networks.
+Networking is chosen at runtime with:
+- `docker run --network ...`
+- Docker Compose networks section
+
+But Dockerfile can still help networking in two ways:
+
+A. Document the ports your app listens on
+-------------------------------------------
+Example:
+  EXPOSE 80
+
+B. Your app should listen on the correct port and bind address
+---------------------------------------------------------------
+- Most web servers should listen on port 80/3000/etc.
+- Prefer binding to `0.0.0.0` (inside container) so it's reachable.
+
+Example app binding note:
+- If your app only binds to localhost (127.0.0.1), other containers may not be able to reach it.
+
+
+11) Put it together: full working example flow
+--------------------------------------------------
+
+Step 1: create a network
+docker network create myapp-net
+
+Step 2: start api (no port mapping needed)
+docker run -d --name api --network myapp-net nginx:alpine
+
+Step 3: start web (no port mapping needed)
+docker run -d --name web --network myapp-net nginx:alpine
+
+Step 4: test from a curl container
+docker run --rm -it --network myapp-net curlimages/curl:8.5.0 \
+  curl -s http://api
+
+If that works:
+- Networking is correct.
+- Now you can publish web to the host only if you need host access:
+  docker run -d --name web -p 8080:80 --network myapp-net nginx:alpine
+
+
+12) Troubleshooting (quick fixes)
+-----------------------------------
+
+Problem: "Could not resolve host api"
+Fix:
+- Ensure both containers are on the same user-defined network.
+- Use `docker network inspect myapp-net` and check connected containers.
+
+Problem: "Connection refused"
+Fix:
+- The target container's app may not be running or not listening on that port.
+- Check logs:
+  docker logs api
+- Verify app listens on correct port (and binds to 0.0.0.0).
+
+Problem: "Works in container but not from host"
+Fix:
+- You probably forgot port mapping `-p HOST:CONTAINER`.
+- Remember: internal Docker networks do not automatically expose ports to your host.
+
+
+Quick Summary (memorize)
+-------------------------
+- Docker network = private path for containers to talk.
+- Same user-defined network => DNS by name works.
+- `-p HOST:CONTAINER` = expose to host.
+- Dockerfile: use `EXPOSE`, but publishing is done at run/compose time.

@@ -1,0 +1,107 @@
+# Notes: Dockerizing a Python Flask App + Pushing to Docker Hub
+
+## 1) What "dockerizing" means
+Docker packages your application and its runtime dependencies into an **image**. An image can be run consistently on any machine that has Docker installed, without "works on my machine" problems.
+
+For a Flask app, we typically:
+1. Choose a base Python image
+2. Install Python dependencies (here: flask)
+3. Copy your app code into the image
+4. Expose the port your app listens on
+5. Start the app using a CMD
+
+## 2) How our Dockerfile works (theory)
+In `Docker_Sessions/Dockerfile`, we used these concepts:
+
+### Base image
+- FROM python:3.11-slim
+- Provides a lightweight Python runtime inside the container.
+
+### Container filesystem setup
+- WORKDIR /app
+- Sets the working directory where commands run, and where files will be copied.
+
+### Install dependencies during build
+- RUN python -m pip install --no-cache-dir flask
+- Installs Flask into the image so it is available at runtime.
+
+### Copy your application code
+- COPY python_app.py /app/python_app.py
+- Adds your Flask application into the image.
+
+### Networking / port documentation
+- EXPOSE 5000
+- Documents that the container listens on port 5000 (host-to-container mapping happens at docker run time).
+
+### Runtime configuration
+- ENV PYTHONUNBUFFERED=1
+- Flushes logs immediately so docker logs shows output right away.
+
+### Command to start the app
+- CMD ["python", "python_app.py"]
+- Tells Docker how to run the app when the container starts.
+
+## 3) Build the Docker image (commands)
+From the folder containing the Dockerfile:
+
+```powershell
+cd Docker_Sessions
+docker build -t flask-app .
+```
+
+This builds the image using the Dockerfile in that directory and tags it locally as flask-app.
+
+## 4) Run the image locally (sanity check)
+```powershell
+docker run --rm -p 5000:5000 flask-app
+```
+
+Then test:
+- Open http://localhost:5000/
+
+-p 5000:5000 means:
+- Host port 5000 -> Container port 5000
+
+## 5) Prepare to push to Docker Hub
+You need:
+1. A Docker Hub account
+2. A repository name on Docker Hub (example: flask-app)
+3. Your Docker Hub username (example: yourDockerHubUser)
+
+Image tag example:
+- yourDockerHubUser/flask-app:latest
+
+## 6) Login to Docker Hub
+```powershell
+docker login
+```
+
+Use your Docker Hub username + password (or an access token, depending on your account settings).
+
+## 7) Tag the image for Docker Hub
+If your local image is flask-app, tag it like this:
+
+```powershell
+docker tag flask-app yourDockerHubUser/flask-app:latest
+```
+
+Replace yourDockerHubUser with your Docker Hub username.
+
+## 8) Push the image to Docker Hub
+```powershell
+docker push yourDockerHubUser/flask-app:latest
+```
+
+## 9) Pull and run from Docker Hub (optional)
+On any machine:
+
+```powershell
+docker pull yourDockerHubUser/flask-app:latest
+docker run --rm -p 5000:5000 yourDockerHubUser/flask-app:latest
+```
+
+## 10) Common notes / troubleshooting
+1. If your Flask app listens on a different port, update the Flask port in python_app.py and update EXPOSE in the Dockerfile.
+2. If you add new Python dependencies, rebuild the image after updating the Dockerfile (dependencies are baked into the image).
+3. For production, you can consider multi-stage builds for smaller images.
+

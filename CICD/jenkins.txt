@@ -1,0 +1,61 @@
+plugins:
+----------
+pipeline plugin
+pipeline stage view plugin
+git plugin
+github branch source plugin 
+credentials binding plugin 
+blue ocean plugin 
+docker pipeline 
+
+
+pipeline {
+    agent any
+
+    environment {
+        IMAGE_NAME = "iamvijay/myapp"
+        IMAGE_TAG = "v1"
+    }
+
+    stages {
+
+        stage('Clone Code') {
+            steps {
+                checkout scmGit(
+                    branches: [[name: '*/main']],
+                    userRemoteConfigs: [[url: 'https://github.com/vijaykanth1729/git-demo.git']]
+                )
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh 'docker build -t $IMAGE_NAME:$IMAGE_TAG .'
+            }
+        }
+
+        stage('Login to Dockerhub') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'docker-creds',
+                    usernameVariable: 'USER',
+                    passwordVariable: 'PASS'
+                )]) {
+                    sh 'echo $PASS | docker login -u $USER --password-stdin'
+                }
+            }
+        }
+
+        stage('Push Image') {
+            steps {
+                sh 'docker push $IMAGE_NAME:$IMAGE_TAG'
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+    }
+}

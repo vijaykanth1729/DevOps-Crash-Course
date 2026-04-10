@@ -1,0 +1,63 @@
+## Docker Networking Theory and Examples
+
+### Introduction
+Docker networking is crucial for enabling containers to communicate with each other and the outside world. Understanding Docker networks helps in deploying applications effectively.
+
+### Types of Docker Networks
+1. **Bridge Network**:
+    - Default network for containers.
+    - Allows communication between containers on the same host.
+    - Example: docker run -d --name my-container --network bridge nginx 
+
+2. **Host Network**:
+    - Uses the host’s network stack.
+    - Containers share the host IP address.
+    - Example: docker run -d --name my-container --network host nginx 
+
+3. **Overlay Network**:
+    - Enables communication between containers across different hosts.
+    - Used in multi-host Docker Swarm setups.
+    - Example: docker network create --driver overlay my-overlay 
+
+4. **None Network**:
+    - Containers are isolated and cannot communicate.
+    - Use when no networking is necessary.
+    - Example: docker run -d --name my-container --network none nginx 
+
+### Practical Examples
+- **Creating and Using a Bridge Network**
+   1. Create a new bridge network: docker network create my-bridge 
+   2. Run a container on this network: docker run -d --name my-app --network my-bridge nginx 
+
+- **Connecting Containers**
+   - To connect multiple containers on the same bridge network, use the --network flag during creation or when running a container.
+
+### Conclusion
+Understanding Docker networking types and how to manage them is key for deploying scalable and resilient applications in containerized environments.
+### Practical Examples with Bridge and Host Networks
+
+- **Using Bridge Network**
+   1. Create a new bridge network: docker network create my-bridge 
+   2. Start two containers on the bridge network:
+       - docker run -d --name container1 --network my-bridge nginx 
+       - docker run -d --name container2 --network my-bridge nginx 
+   3. Connect to container1 and try to access container2 using its name:
+       - docker exec -it container1 /bin/bash 
+       - curl container2 (should return the default Nginx page)
+   4. Disconnect container1 from the bridge and remove the network:
+       - docker network disconnect my-bridge container1 
+       - curl container2 (should fail)
+
+- **Using Host Network**
+   1. Start two containers on the host network:
+       - docker run -d --net host --name host_container1 nginx 
+       - docker run -d --net host --name host_container2 nginx 
+   2. Connect to host_container1 and try to access host_container2 using localhost:
+       - docker exec -it host_container1 /bin/bash 
+       - curl localhost (should return the default Nginx page)
+   3. Killing the containers and restarting will still allow access as they share the same IP:
+       - docker stop host_container1 
+       - docker start host_container1 
+       - curl localhost (should return the Nginx page again)`n
+### Conclusion
+Understanding Docker networking types and how to manage them is key for deploying scalable and resilient applications in containerized environments.

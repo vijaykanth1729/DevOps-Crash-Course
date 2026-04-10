@@ -1,0 +1,77 @@
+Containers are emphemeral. Meaning they are temorary.
+
+if you remove the container the data stored in that container is lost.
+
+ex:
+----
+docker run -it ubuntu
+
+cd /tmp
+touch testfile.txt
+echo "hello world" > testfile.txt
+ls && cat testfile.txt
+
+docker ps -a
+docker rm container_id
+docker run -it ubuntu
+
+cd /tmp 
+ls (Nothing present)
+
+Volumes:
+------------
+volumes store data outside the container, indepenednt of container lifecycle.
+
+with volume persistency:
+---------------------
+docker run -it -v myvolume:/data ubuntu
+cd /tmp
+touch testfile.txt
+echo "hello world" > testfile.txt
+ls && cat testfile.txt
+
+docker rm container_id
+docker run -it -v myvolume:/data ubuntu
+cd /tmp
+ls
+which will show all files exists.
+
+Types of volumes:
+-------------------
+Named vlumes / Volume (Most common)
+eg:
+------
+-v myvolume:/data
+
+stored in /var/lib/docker/volumes directory.
+
+Bind Mounts (Real world dev usage):
+---------------------------------------
+eg:
+---
+-v /host/path:/container_path
+
+docker run -it -v /home/ubuntu/data:/data ubuntu
+
+so the change made in host directory or container directory will be synced automatically.
+
+Docker Networking:
+------------------
+containers need to talk to each other (Microservices.)
+
+Network Types:
+---------------
+
+Bridge (Default):
+------------------
+
+docker network ls  
+
+Host Network:
+-------------------
+shares host network 
+No isolation.
+
+None:
+-------
+No network access.

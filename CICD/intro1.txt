@@ -1,0 +1,232 @@
+Pipeline Notes (Jenkins)
+========================
+
+1) What is a Jenkins Pipeline?
+--------------------------------
+Jenkins Pipeline is a way to define CI/CD workflows as code.
+Instead of clicking steps manually (Freestyle jobs), we describe the stages in:
+
+- Jenkinsfile (recommended, stored in your Git repo)
+- or Pipeline script directly in Jenkins UI
+
+Pipeline Types
+---------------
+
+A) Declarative Pipeline (most common)
+--------------------------------------
+Uses a structured syntax with blocks like:
+- pipeline { agent ... stages { stage(...) { steps ... } } }
+
+B) Scripted Pipeline
+---------------------
+More flexible Groovy-based syntax (logic is written directly in steps).
+
+C) Freestyle Jobs (not a pipeline)
+-----------------------------------
+Legacy style job with build steps configured in UI.
+Good for simple tasks, but harder to maintain at scale.
+
+
+2) Multi-Branch Pipelines (Important)
+======================================
+
+What it means:
+--------------
+Multi-branch pipeline is a Jenkins job type that automatically creates separate pipelines for:
+- each branch in your SCM repository (master, dev, feature-x, etc.)
+- (optionally) pull requests (PRs)
+
+Key idea:
+---------
+Jenkins scans your Git repository and looks for a `Jenkinsfile` in branches.
+Then it creates pipeline runs per branch automatically.
+
+How it works (high level):
+---------------------------
+Repository URL (Git) +
+Branch discovery + Jenkinsfile +
+Automatic pipeline creation per branch.
+
+Why use Multi-Branch Pipelines?
+--------------------------------
+- No manual job creation per branch
+- Consistent pipeline per branch
+- Better scaling when you have many branches/PRs
+
+What you need:
+---------------
+1. A Jenkinsfile in your repo root (or known location)
+2. Create a "Multibranch Pipeline" job in Jenkins
+3. Point it to the correct Git repo
+
+Typical Jenkinsfile location:
+------------------------------
+- /Jenkinsfile
+
+3) Other ways of creating pipelines
+=====================================
+
+Option 1: Pipeline job + Jenkinsfile from SCM
+---------------------------------------------
+1. Create a "Pipeline" job
+2. Configure:
+   - Definition: Pipeline script from SCM
+   - SCM: Git (or GitHub)
+   - Script path: Jenkinsfile
+
+Option 2: Pipeline job + inline script
+---------------------------------------
+1. Create a "Pipeline" job
+2. Definition: Pipeline script
+3. Paste Groovy pipeline directly in Jenkins UI
+
+Option 3: Use "Blue Ocean" (visual pipeline)
+--------------------------------------------
+Blue Ocean provides a UI for pipeline visualization and stage-by-stage tracking.
+It still runs Pipeline jobs under the hood.
+
+Option 4: Webhook triggers
+---------------------------
+To make CI faster:
+- Configure GitHub/GitLab webhook to notify Jenkins
+- Jenkins triggers a build automatically when code is pushed or PR is created
+
+4) Credentials Configuration (Jenkins)
+========================================
+
+Why credentials matter:
+-----------------------
+Jenkins often needs secrets for:
+- Git authentication (private repos)
+- DockerHub login
+- AWS access keys / IAM access
+- SSH keys to servers/agents
+
+Jenkins Credential Store:
+--------------------------
+Jenkins stores secrets in a centralized credential system.
+You can configure credentials under:
+- Manage Jenkins -> Manage Credentials
+
+Common credential types:
+--------------------------
+- Username with password
+- SSH Username with private key
+- Secret text
+- File credentials
+- Docker registry credentials
+
+How credentials are used in pipelines:
+----------------------------------------
+
+A) Using `credentials()` (username/password, secret text, etc.)
+Example (Declarative Pipeline):
+```groovy
+pipeline {
+  agent any
+  stages {
+    stage('Docker login') {
+      steps {
+        withCredentials([usernamePassword(
+          credentialsId: 'dockerhub-creds',
+          usernameVariable: 'DOCKER_USER',
+          passwordVariable: 'DOCKER_PASS'
+        )]) {
+          sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
+        }
+      }
+    }
+  }
+}
+```
+
+B) Using SSH credentials for remote commands:
+```groovy
+stage('Deploy via SSH') {
+  steps {
+    sshagent(credentials: ['ssh-key-creds']) {
+      sh 'ssh -o StrictHostKeyChecking=no user@your-server "kubectl get pods"'
+    }
+  }
+}
+```
+
+C) Binding credentials to environment:
+You can pass secrets to commands through env vars inside a `withCredentials` block.
+
+Recommended practice:
+----------------------
+- Never hardcode passwords/keys in Jenkinsfile
+- Use credentialsId references
+
+5) Adding Agents / Workers (EC2 as External Node)
+===================================================
+
+Jenkins architecture reminder:
+-------------------------------
+- Controller: schedules jobs
+- Agent/Worker: executes job steps
+
+Goal:
+-----
+Add an EC2 instance (or multiple EC2 instances) as an external node
+so Jenkins can run builds on cloud machines.
+
+High-level approaches:
+-----------------------
+A) Static EC2 node (manual provisioning)
+- You manually start EC2 instance(s)
+- Install required software (e.g., Java, Docker, build tools)
+- Register the machine in Jenkins as a fixed node
+
+B) Dynamic EC2 nodes (auto-scaling using Jenkins EC2 plugin)
+- Jenkins launches instances automatically based on demand
+- Jenkins terminates them after builds (if configured)
+
+Dynamic setup (recommended for learning):
+-------------------------------------------
+1. Install EC2 plugin in Jenkins
+2. Add AWS credentials in Jenkins:
+   - "Access Key" / "Secret Key" OR use instance profile
+3. In Jenkins:
+   - Manage Jenkins -> Manage Nodes and Clouds
+   - Add a "Cloud" -> EC2 cloud configuration
+4. Configure EC2 details:
+   - Region
+   - AMI (base image)
+   - Instance type
+   - Key pair for SSH
+   - Security group allowing SSH from Jenkins/controller
+   - Jenkins labels (example: `ec2`, `linux`, `builder`)
+5. Test by launching/connecting nodes
+
+Using labels in Jenkinsfile:
+-------------------------------
+If the EC2 agent is labeled `ec2`, then:
+```groovy
+pipeline {
+  agent { label 'ec2' }
+  stages {
+    stage('Build') {
+      steps {
+        sh 'python --version'
+      }
+    }
+  }
+}
+```
+
+Important notes:
+-----------------
+- Ensure EC2 has required tooling:
+  - Java (Jenkins agent needs it)
+  - Docker (if builds use containers)
+  - Python/node/etc depending on your app
+- Ensure network rules:
+  - Jenkins/controller must reach EC2 via SSH (port 22)
+- If using Docker-in-Docker or Docker on host:
+  - configure Docker permissions on the agent
+
+End
+===
+

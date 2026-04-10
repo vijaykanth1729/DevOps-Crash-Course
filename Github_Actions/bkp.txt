@@ -1,0 +1,456 @@
+GitHub Actions - Beginner Intro (Syntax + Examples)
+====================================================
+
+1) What is GitHub Actions?
+----------------------------
+GitHub Actions is automation inside GitHub. You can run scripts and pre-built actions when events happen, like:
+- `push` to a branch
+- `pull_request`
+- publishing a release
+- manually (workflow_dispatch)
+
+It is CI/CD friendly: build/test/lint on every PR and optionally deploy after merge.
+
+
+2) Core building blocks (the "syntax flow")
+-------------------------------------------
+A GitHub Actions workflow is defined in a YAML file:
+- `.github/workflows/<name>.yml`
+
+Main hierarchy:
+- `name`: display name in the UI
+- `on`: triggers (events)
+- `jobs`: what runs
+- Each `job` contains:
+  - `runs-on`: which runner (machine type)
+  - `steps`: ordered commands/actions
+
+Terminology:
+- Workflow = the whole YAML file
+- Job = a separate execution unit inside the workflow
+- Step = a single command/action inside a job
+
+
+3) Runners (where jobs execute)
+---------------------------------
+Two common runner types:
+- `ubuntu-latest` (hosted runner, easiest for beginners)
+- `windows-latest`, `macos-latest`
+
+You can also use self-hosted runners (your own servers/VMs).
+- `runs-on: self-hosted` (or label-based)
+
+
+4) Common steps/actions you will use
+-------------------------------------
+Most workflows start with:
+1. `actions/checkout` to clone your repo
+2. language setup (example: `actions/setup-python`)
+
+Example step syntax:
+```yaml
+steps:
+  - uses: actions/checkout@v4
+  - run: echo "Hello"
+```
+
+Notes:
+- `uses` runs an action (pre-built by someone else or official)
+- `run` runs a shell command
+
+
+5) Expressions, contexts, and variables
+----------------------------------------
+GitHub Actions uses expressions with `${{ ... }}`.
+Common contexts:
+- `${{ github.ref }}` (branch/ref)
+- `${{ github.sha }}` (commit SHA)
+- `${{ github.actor }}` (username that triggered)
+- `${{ secrets.NAME }}` (secret values)
+
+Example:
+```yaml
+if: ${{ github.event_name == 'pull_request' }}
+```
+
+
+6) Secrets and credentials (very important)
+--------------------------------------------
+Never hardcode passwords/keys in YAML.
+
+Store secrets in GitHub:
+- Repo -> Settings -> Secrets and variables -> Actions -> New repository secret
+
+In workflow:
+```yaml
+env:
+  DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+```
+
+Or pass directly:
+```yaml
+run: echo "${{ secrets.DOCKERHUB_TOKEN }}"
+```
+
+You should also limit access using permissions (principle of least privilege):
+```yaml
+permissions:
+  contents: read
+  packages: write
+```
+
+
+7) Artifacts (moving build outputs)
+--------------------------------------
+Builds often create files (jars, zip, frontend dist).
+You can upload and download artifacts:
+- upload: `actions/upload-artifact`
+- download: `actions/download-artifact`
+
+
+8) Caching (speed up builds)
+-------------------------------
+Example: cache dependencies (pip, npm, etc.)
+Use `actions/cache`:
+- store a folder or cache key and reuse it across runs
+
+
+9) Conditions and matrices
+---------------------------
+- `if:` controls whether steps/jobs run
+- `strategy.matrix` runs the same job for multiple variations
+
+
+10) Reusable workflows
+------------------------
+Instead of copy/paste YAML, you can call a reusable workflow using:
+- `workflow_call`
+
+This is useful when multiple repos or workflows share the same pipeline logic.
+
+
+====================================================
+Examples (copy these patterns and modify)
+====================================================
+
+Example 1: Minimal workflow (run on push)
+------------------------------------------
+File: `.github/workflows/hello.yml`
+```yaml
+name: Hello
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  hello-job:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Say hi
+        run: echo "Hello from GitHub Actions"
+```
+
+
+Example 2: CI pipeline for a Python project (lint/test)
+----------------------------------------------------------
+Assume:
+- your repo has `requirements.txt`
+- tests run with `pytest`
+```yaml
+name: CI - Python
+
+on:
+  pull_request:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests
+        run: pytest -q
+```
+
+Add caching (common improvement):
+```yaml
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-
+```
+
+
+Example 3: Matrix build (test multiple Python versions)
+---------------------------------------------------------
+```yaml
+name: CI - Matrix
+
+on: [push]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10", "3.11"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - run: python -m pip install -r requirements.txt
+      - run: pytest -q
+```
+
+
+Example 4: Upload artifact (build output)
+-------------------------------------------
+Example: create a zip and upload it.
+```yaml
+name: Build Artifact
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build (example)
+        run: |
+          mkdir -p dist
+          echo "build output" > dist/output.txt
+          cd dist
+          zip -r ../app.zip .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-zip
+          path: app.zip
+```
+
+Download in another job:
+```yaml
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: app-zip
+```
+
+
+Example 5: Docker build and push to Docker Hub (using secrets)
+-----------------------------------------------------------------
+Assume Dockerfile exists in repo root.
+Steps:
+1. login using `secrets.DOCKERHUB_TOKEN`
+2. build image
+3. push image
+
+```yaml
+name: Docker Publish
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/my-flask-app:${{ github.sha }}
+```
+
+Tip:
+- For beginners, start with pushing `:latest`.
+- For production, use versioned tags like `${{ github.sha }}`.
+
+
+Example 6: Deploy with SSH (credentials via secrets)
+-----------------------------------------------------
+This is a common pattern to deploy to a VM.
+Use secrets for:
+- `SSH_HOST`
+- `SSH_USER`
+- `SSH_PRIVATE_KEY`
+
+```yaml
+name: Deploy via SSH
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            echo "Running deploy on server"
+            # Example:
+            # cd /path/to/app
+            # git pull
+            # docker compose up -d --build
+```
+
+
+Example 7: Manual trigger (workflow_dispatch)
+-----------------------------------------------
+Useful for manual releases or re-deploys.
+```yaml
+name: Manual Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        default: "staging"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Show input
+        run: echo "Deploying to ${{ inputs.environment }}"
+```
+
+
+Example 8: Conditional execution (if)
+----------------------------------------
+Run a step only on PRs:
+```yaml
+steps:
+  - name: Only on PR
+    if: ${{ github.event_name == 'pull_request' }}
+    run: echo "This runs for pull requests only"
+```
+
+
+Example 9: Environments and approvals (deployment gates)
+----------------------------------------------------------
+GitHub Environments let you add:
+- required reviewers (manual approval before deployment)
+- environment secrets (optional)
+
+```yaml
+name: Deploy with Approval
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - run: echo "Deploy to production after approval"
+```
+
+To use it:
+Repo -> Settings -> Environments -> create `production` and set reviewers.
+
+
+Example 10: Reusable workflow (workflow_call)
+------------------------------------------------
+Step A: reusable workflow in another file:
+`.github/workflows/reusable-ci.yml`
+```yaml
+name: Reusable CI
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        type: string
+        required: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+      - run: python -m pip install -r requirements.txt
+      - run: pytest -q
+```
+
+Step B: call it from another workflow:
+`.github/workflows/run-ci.yml`
+```yaml
+name: Run CI
+
+on:
+  push:
+    branches: ["main"]
+
+jobs:
+  call-reusable:
+    uses: ./.github/workflows/reusable-ci.yml
+    with:
+      python-version: "3.11"
+```
+
+
+====================================================
+Checklist for beginners (what to remember)
+====================================================
+1. Workflow lives in `.github/workflows/*.yml`
+2. Use `on:` to decide when it runs
+3. Use `jobs:` to define execution units
+4. Use `runs-on:` to choose runner
+5. Use `steps:` with `uses` (actions) and `run` (commands)
+6. Use `${{ secrets.NAME }}` for credentials
+7. Use `if:` for conditions
+8. Use `matrix` for testing combinations
+9. Use `upload-artifact` for outputs
+10. Use `workflow_dispatch` for manual triggers
+

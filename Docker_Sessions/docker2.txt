@@ -1,0 +1,33 @@
+Run nginx :
+------------
+docker pull nginx
+
+docker run --name mynginx -d nginx
+
+docker logs 133597288d8c 
+
+To access nginx locally u have to do port  mapping...{HOST:CONTAINER_PORT}
+
+    docker run --name test -d -p 8080:80 nginx
+
+docker stop container_id
+
+Dockerfile:
+-------------
+Its a script with instructions to build an image.
+
+Basic Structure
+-------------------
+
+FROM 
+WORKDIR
+COPY
+Run
+CMD 
+
+Once dockerfile is ready, u have to build an image out of it.
+
+docker build -t my-python-app .
+docker run -it mypython-app /bin/bash
+
+
