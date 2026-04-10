@@ -24,6 +24,6 @@ jobs:
         - name: Verify Docker Image
           run: docker pull iamvijay/myapp3:latest
         - name: Test Application (stdout)
-          run: docker run --rm iamvijay/myapp3:latest | grep -Fq "hello world"
+          run: docker run --rm iamvijay/myapp3:latest | grep -F "hello world"
         
         
